@@ -1,4 +1,4 @@
-package java.server;
+package server;
 
 import java.net.*;
 import java.io.*;
@@ -38,14 +38,15 @@ public class Server{
                 if(n == -1){
                     break;
                 }
-
+                String str = new String(buf);
+                System.out.println(str);
                 writePos += n;
-                /*
+
                 Command cmd;
                 while((cmd = tryParse(buf)) != null){
                     dispatch()
                 }
-                */
+
             }
             
         }

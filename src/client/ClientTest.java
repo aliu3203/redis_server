@@ -2,7 +2,7 @@ import java.util.*;
 import java.io.*;
 import java.net.*;
 
-public class test{
+public class ClientTest{
     public static void main(String[] args) throws Exception{
         byte[] ping = "*1\r\n$4\r\nPING\r\n".getBytes();
         
