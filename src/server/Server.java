@@ -29,24 +29,21 @@ public class Server{
             InputStream in = s.getInputStream();
             OutputStream out = s.getOutputStream();
         ){
-            byte[] buf = new byte[256];
-            int writePos = 0; // start writing at writePos
+            
+            Buffer buffer = new Buffer();
 
             while(true){
-                
-                int n = in.read(buf, writePos, buf.length-writePos);
+                // read
+                int n = buffer.read(in);
                 if(n == -1){
                     break;
                 }
-                String str = new String(buf);
-                System.out.println(str);
-                writePos += n;
+                
 
                 Command cmd;
-                while((cmd = tryParse(buf)) != null){
-                    dispatch()
+                while((cmd = tryParse(buffer)) != null){
+                    dispatch(cmd);
                 }
-
             }
             
         }
@@ -54,4 +51,13 @@ public class Server{
             System.out.println("error in handling " + e);
         }
     }
+
+    private static Command tryParse(Buffer buf){
+        return null;
+    }
+
+    private static void dispatch(Command cmd){
+
+    }
+
 }

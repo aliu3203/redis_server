@@ -22,9 +22,10 @@ public class Buffer{
 
     public int read(InputStream in) throws IOException{
         int n = in.read(buf, writePos, buf.length-writePos);
-
         // advance pos by # of bytes read
-        writePos += n;
+        if(n > 0){
+            writePos += n;
+        }
         return n;
     }
 }
