@@ -1,3 +1,5 @@
+package java.server;
+
 import java.net.*;
 import java.io.*;
 
@@ -28,13 +30,23 @@ public class Server{
             OutputStream out = s.getOutputStream();
         ){
             byte[] buf = new byte[256];
-            int n;
-            while((n = in.read(buf)) != -1){
-                if(n > 0){
-                    System.out.println("request " + new String(buf, 0, n));
-                }
-            }
+            int writePos = 0; // start writing at writePos
 
+            while(true){
+                
+                int n = in.read(buf, writePos, buf.length-writePos);
+                if(n == -1){
+                    break;
+                }
+
+                writePos += n;
+                /*
+                Command cmd;
+                while((cmd = tryParse(buf)) != null){
+                    dispatch()
+                }
+                */
+            }
             
         }
         catch(Exception e){
