@@ -41,7 +41,7 @@ public class Server{
                 
 
                 Command cmd;
-                while((cmd = tryParse(buffer)) != null){
+                while((cmd = Parser.tryParse(buffer)) != null){
                     dispatch(cmd);
                 }
             }

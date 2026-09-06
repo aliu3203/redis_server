@@ -46,4 +46,46 @@ public class Buffer{
             throw new IOException("command too large");
         }
     }
+
+
+
+    public void consume(int pos){
+        // Should never happen
+        if(readPos + pos > writePos){
+            throw new IllegalStateException("readPos was greater than writePos following consumption");
+        }
+        readPos += pos;
+        
+    }
+
+    public byte at(int pos){
+        int bufPos = readPos + pos;
+        if(bufPos < readPos || bufPos >= writePos){
+            throw new IndexOutOfBoundsException();
+        }
+        return buf[bufPos];
+    }
+
+    public int readableBytes(int from){
+        // Out of bounds from
+        if(from < 0 || from > writePos-readPos){
+            throw new IndexOutOfBoundsException();
+        }
+        return writePos-readPos-from;
+    }
+
+    // returns index of first \r relative to readPo
+    public int findCRLF(int from){
+        int pos = from + readPos;
+        if(!(pos >= readPos && pos <= writePos)){
+            throw new IndexOutOfBoundsException();
+        }
+        for(int p = pos; p < writePos-1; p++){
+            if(buf[p] == '\r' && buf[p+1] == '\n'){
+                return p-readPos;
+            }
+        }
+        return -1;
+    }
+
 }
