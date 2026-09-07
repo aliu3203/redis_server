@@ -6,7 +6,11 @@ import java.util.List;
 
 public final class Parser{
 
-    private final long MAX_ALLOWED = 16384;
+    private static final long MAX_ARGS   = 1024 * 1024;
+    private static final long MAX_BULK = 512 * 1024 * 1024;
+    private static final long MAX_INLINE = 64 * 1024;
+    private static final long MAX_ALLOWED_INT = 512 * 1024 * 1024;
+
 
     private Buffer buf;
 
@@ -46,6 +50,10 @@ public final class Parser{
 
         int count = parseInteger(pos+1, posCRLF);
 
+        if(count > MAX_ARGS){
+            throw new ProtocolException("too many arguments");
+        }
+
         byte[][] args = new byte[count][];
         pos = posCRLF + 2;
 
@@ -64,10 +72,16 @@ public final class Parser{
 
     }
 
-    private Command parseInline(){
+    private Command parseInline() throws ProtocolException{
         
         int posCRLF = buf.findCRLF(pos);
-        if(posCRLF == -1){
+
+        int lineLen = (posCRLF == -1) ? buf.readableBytes(pos) : posCRLF;
+
+        if (lineLen > MAX_INLINE){
+            throw new ProtocolException("too big inline request");
+        }
+        if (posCRLF == -1){
             return null;
         }
 
@@ -107,7 +121,7 @@ public final class Parser{
             else{
                 throw new ProtocolException("invalid character in length");
             }
-            if(pInt > MAX_ALLOWED){
+            if(pInt > MAX_ALLOWED_INT){
                 throw new ProtocolException("exceeded max allowed length");
             }
         }
@@ -128,6 +142,10 @@ public final class Parser{
         }
 
         int len = parseInteger(pos, posCRLF);
+
+        if(len > MAX_BULK){
+            throw new ProtocolException("number of bytes in bulk command exceeds limit");
+        }
 
         pos = posCRLF + 2;
         if(buf.readableBytes(pos) < len + 2){

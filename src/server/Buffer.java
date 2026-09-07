@@ -6,7 +6,7 @@ import java.net.*;
 public class Buffer{
 
     private static final int INITIAL_CAPACITY = 16384;
-    private static final int MAX_CAPACITY = 64*INITIAL_CAPACITY;
+    private static final int MAX_CAPACITY = 256*INITIAL_CAPACITY;
 
     private byte[] buf;
 
