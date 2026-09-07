@@ -1,0 +1,17 @@
+name: Compile Test
+on: [push pull_request]
+jobs:
+  compile_job:
+    name: Compile test
+    runs-on: ubuntu-latest
+    steps:
+      -uses: actions/checkout@v7
+
+      -name: Set up JDK
+      uses: actions/setup-java@v6
+      with:
+        distribution: temurin
+        java-version: '21'
+
+      -name: Compile
+      run: javac -d out $(find src -name '*.java')
