@@ -4,7 +4,7 @@ on: [push, pull_request]
 
 jobs:
   compile_job:
-    name: Compile test
+    name: Compile + Parser test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -17,3 +17,6 @@ jobs:
 
       - name: Compile
         run: javac -d out $(find src -name '*.java')
+
+      - name: Run Parser Tests
+        run: java -cp out server.ParserTest
