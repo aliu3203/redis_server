@@ -1,7 +1,7 @@
 package server;
 
-import java.io.*;
-import java.net.*;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.Arrays;
 
 public class Buffer{

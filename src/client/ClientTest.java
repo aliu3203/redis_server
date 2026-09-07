@@ -1,6 +1,5 @@
-import java.util.*;
-import java.io.*;
-import java.net.*;
+import java.io.OutputStream;
+import java.net.Socket;
 
 public class ClientTest{
     public static void main(String[] args) throws Exception{
