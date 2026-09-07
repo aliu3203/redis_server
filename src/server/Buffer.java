@@ -2,11 +2,12 @@ package server;
 
 import java.io.*;
 import java.net.*;
+import java.util.Arrays;
 
 public class Buffer{
 
     private static final int INITIAL_CAPACITY = 16384;
-    private static final int MAX_CAPACITY = 64*INITIAL_CAPACITY;
+    private static final int MAX_CAPACITY = 1024*INITIAL_CAPACITY;
 
     private byte[] buf;
 
@@ -40,10 +41,55 @@ public class Buffer{
             writePos -= readPos;
             readPos = 0;
         }
-        if(writePos == buf.length){
-            // Eventually want to expand until MAX_CAPACITY by copying array and doubling it
-            // For now simply throw exception
+        if(writePos < buf.length){
+            return;
+        }
+        if(buf.length >= MAX_CAPACITY){
             throw new IOException("command too large");
         }
+        int newCap = (int) Math.min(MAX_CAPACITY, 2L * (long)buf.length);
+        buf = Arrays.copyOf(buf, newCap);
     }
+
+
+
+    public void consume(int pos){
+        // Should never happen
+        if(readPos + pos > writePos){
+            throw new IllegalStateException("readPos was greater than writePos following consumption");
+        }
+        readPos += pos;
+        
+    }
+
+    public byte at(int pos){
+        int bufPos = readPos + pos;
+        if(bufPos < readPos || bufPos >= writePos){
+            throw new IndexOutOfBoundsException();
+        }
+        return buf[bufPos];
+    }
+
+    public int readableBytes(int from){
+        // Out of bounds from
+        if(from < 0 || from > writePos-readPos){
+            throw new IndexOutOfBoundsException();
+        }
+        return writePos-readPos-from;
+    }
+
+    // returns index of first \r relative to readPos
+    public int findCRLF(int from){
+        int pos = from + readPos;
+        if(!(pos >= readPos && pos <= writePos)){
+            throw new IndexOutOfBoundsException();
+        }
+        for(int p = pos; p < writePos-1; p++){
+            if(buf[p] == '\r' && buf[p+1] == '\n'){
+                return p-readPos;
+            }
+        }
+        return -1;
+    }
+
 }

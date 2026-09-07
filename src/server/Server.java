@@ -41,7 +41,7 @@ public class Server{
                 
 
                 Command cmd;
-                while((cmd = tryParse(buffer)) != null){
+                while((cmd = Parser.tryParse(buffer)) != null){
                     dispatch(cmd);
                 }
             }
@@ -50,10 +50,6 @@ public class Server{
         catch(Exception e){
             System.out.println("error in handling " + e);
         }
-    }
-
-    private static Command tryParse(Buffer buf){
-        return null;
     }
 
     private static void dispatch(Command cmd){
