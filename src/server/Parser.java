@@ -31,19 +31,35 @@ public final class Parser{
         return ((buf.at(pos) == '*') ? parseMultibulk : parseInline)
     }
     
-    private Command parseMultibulk(){
+    private Command parseMultibulk() throws ProtocolException{
         // get length of args
         int posCRLF = buf.findCRLF(pos+1);
         
-        // Incomplete
+        // Incomplete command
         if(posCRLF == -1){
             return null;
         }
         
+        
+
         int count = parseInteger(pos+1, posCRLF);
 
-        Command cmd = new Command(count);
+        byte[][] args = new byte[count][];
+        pos = posCRLF + 2;
 
+        for(int i = 0; i < count; i++){
+            byte[] arg = parseString();
+
+            // unfinished argument
+            if(arg == null){
+                return null;
+            }
+
+            args[i] = arg;
+   
+        }
+
+        return new Command(args);
 
     }
 
@@ -70,6 +86,40 @@ public final class Parser{
             }
         }
         return (int)pInt;
+    }
+
+    private byte[] parseString() throws ProtocolException{
+        if(buf.readableBytes(pos) == 0){
+            return null;
+        }
+        if(buf.at(pos) != '$'){
+            throw new ProtocolException("length of string does not begin with dollar sign");
+        }
+        pos += 1;
+        int posCRLF = buf.findCRLF(pos);
+        if(posCRLF == -1){
+            return null;
+        }
+
+        int len = parseInteger(pos, posCRLF);
+
+        pos = posCRLF + 2;
+        if(buf.readableBytes(pos) < len + 2){
+            return null;
+        }
+
+        if(buf.at(pos + len) != '\r' || buf.at(pos + len + 1) != '\n'){
+            throw new ProtocolException("args lied about byte length");
+        }
+
+        byte[] arg = new byte[len];
+        for(int i = 0; i < len; i++){
+            byte b = buf.at(i + posCRLF + 2);
+            arg[i] = b;
+        }
+        pos += len+2;
+        return arg;
+
     }
 
 }
