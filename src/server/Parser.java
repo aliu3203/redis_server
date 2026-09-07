@@ -24,11 +24,11 @@ public final class Parser{
 
     // Should update pos to byte immediately following command
     private Command parseCommand() throws ProtocolException{
-        if(buf.readableBytes() == 0){
+        if(buf.readableBytes(pos) == 0){
             return null;
         }
         
-        return ((buf.at(pos) == '*') ? parseMultibulk : parseInline)
+        return ((buf.at(pos) == '*') ? parseMultibulk() : parseInline());
     }
     
     private Command parseMultibulk() throws ProtocolException{
