@@ -1,5 +1,9 @@
 package server;
 
+import java.util.ArrayList;
+import java.util.List;
+
+
 public final class Parser{
 
     private final long MAX_ALLOWED = 16384;
@@ -39,8 +43,6 @@ public final class Parser{
         if(posCRLF == -1){
             return null;
         }
-        
-        
 
         int count = parseInteger(pos+1, posCRLF);
 
@@ -58,13 +60,37 @@ public final class Parser{
             args[i] = arg;
    
         }
-
         return new Command(args);
 
     }
 
     private Command parseInline(){
         
+        int posCRLF = buf.findCRLF(pos);
+        if(posCRLF == -1){
+            return null;
+        }
+
+        List<byte[]> args = new ArrayList<>();
+        int tokenStart = pos;
+        for(int i = pos; i <= posCRLF; i++){
+            if(i == posCRLF || buf.at(i) == ' '){
+                
+
+                // Ensure groups of spaces aren't counted
+                if(i > tokenStart){
+                    byte[] arg = new byte[i-tokenStart];
+                    for(int k = 0; k < i-tokenStart; k++){
+                        arg[k] = buf.at(k+tokenStart);
+                    }
+                    args.add(arg);
+                }
+                tokenStart = i + 1;
+            }
+        }
+        pos = posCRLF + 2;
+        return new Command(args.toArray(new byte[0][]));
+
     }
 
     // parses interval [from, to)

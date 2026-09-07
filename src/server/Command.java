@@ -10,7 +10,7 @@ public class Command{
     Command(byte[][] argv){
         this.argv = argv;
         if(argv.length == 0){
-            name = null;
+            name = "";
         }
         else{
             name = new String(argv[0], StandardCharsets.ISO_8859_1).toUpperCase(Locale.ROOT);
