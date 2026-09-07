@@ -52,10 +52,6 @@ public class Server{
         }
     }
 
-    private static Command tryParse(Buffer buf){
-        return null;
-    }
-
     private static void dispatch(Command cmd){
 
     }

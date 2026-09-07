@@ -23,4 +23,11 @@ public class Command{
     public int argc(){
         return argv.length;
     }
+
+    public byte[] arg(int i) throws IndexOutOfBoundsException{
+        if(i < 0 || i >= argv.length){
+            throw new IndexOutOfBoundsException("accessing arg out of bounds");
+        }
+        return argv[i];
+    }
 }

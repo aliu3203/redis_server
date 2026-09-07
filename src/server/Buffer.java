@@ -2,11 +2,12 @@ package server;
 
 import java.io.*;
 import java.net.*;
+import java.util.Arrays;
 
 public class Buffer{
 
     private static final int INITIAL_CAPACITY = 16384;
-    private static final int MAX_CAPACITY = 256*INITIAL_CAPACITY;
+    private static final int MAX_CAPACITY = 1024*INITIAL_CAPACITY;
 
     private byte[] buf;
 
@@ -40,11 +41,14 @@ public class Buffer{
             writePos -= readPos;
             readPos = 0;
         }
-        if(writePos == buf.length){
-            // Eventually want to expand until MAX_CAPACITY by copying array and doubling it
-            // For now simply throw exception
+        if(writePos < buf.length){
+            return;
+        }
+        if(buf.length >= MAX_CAPACITY){
             throw new IOException("command too large");
         }
+        int newCap = (int) Math.min(MAX_CAPACITY, 2L * (long)buf.length);
+        buf = Arrays.copyOf(buf, newCap);
     }
 
 
@@ -74,7 +78,7 @@ public class Buffer{
         return writePos-readPos-from;
     }
 
-    // returns index of first \r relative to readPo
+    // returns index of first \r relative to readPos
     public int findCRLF(int from){
         int pos = from + readPos;
         if(!(pos >= readPos && pos <= writePos)){
