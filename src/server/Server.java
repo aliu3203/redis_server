@@ -2,6 +2,7 @@ package server;
 
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.BufferedOutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
 
@@ -29,7 +30,7 @@ public class Server{
     private static void handle(Socket s){
         try(s;
             InputStream in = s.getInputStream();
-            OutputStream out = s.getOutputStream();
+            OutputStream out = new BufferedOutputStream(s.getOutputStream());
         ){
             
             Buffer buffer = new Buffer();
@@ -44,18 +45,15 @@ public class Server{
 
                 Command cmd;
                 while((cmd = Parser.tryParse(buffer)) != null){
-                    dispatch(cmd);
+                    Dispatcher.dispatch(cmd, out);
                 }
+                out.flush();
             }
             
         }
         catch(Exception e){
             System.out.println("error in handling " + e);
         }
-    }
-
-    private static void dispatch(Command cmd){
-
     }
 
 }

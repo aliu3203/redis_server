@@ -78,6 +78,21 @@ public class Buffer{
         return writePos-readPos-from;
     }
 
+    // returns index of the next \n relative to readPos, or -1 if not present.
+    // Inline commands use this because a terminal sends a bare \n, not CRLF.
+    public int findLF(int from){
+        int pos = from + readPos;
+        if(pos < readPos || pos > writePos){
+            throw new IndexOutOfBoundsException();
+        }
+        for(int p = pos; p < writePos; p++){
+            if(buf[p] == '\n'){
+                return p-readPos;
+            }
+        }
+        return -1;
+    }
+
     // returns index of first \r relative to readPos
     public int findCRLF(int from){
         int pos = from + readPos;
