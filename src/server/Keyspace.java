@@ -14,11 +14,10 @@ public class Keyspace{
         data.put(key, value);
     }
 
-    // No handling of LONG.MAX_VALUE
     public long incr(String key){
         byte[] curr = data.get(key);
-        long n = (curr == null) ? 0 : Long.parseLong(new String(cur, StandardCharsets.ISO_8859_1));
-        n += 1;
+        long n = (curr == null) ? 0 : Long.parseLong(new String(curr, StandardCharsets.ISO_8859_1));
+        n = Math.addExact(n, 1);
         data.put(key, Long.toString(n).getBytes(StandardCharsets.ISO_8859_1));
         return n;
     }

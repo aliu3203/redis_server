@@ -28,6 +28,7 @@ public final class Dispatcher{
                 case "ECHO" -> echo(cmd, out);
                 case "GET"  -> get(cmd, out);
                 case "SET"  -> set(cmd, out);
+                case "INCR" -> incr(cmd, out);
                 default     -> Reply.error(out, "ERR unknown command '" + cmd.name() + "'");
             }
         }
@@ -85,6 +86,23 @@ public final class Dispatcher{
 
         keyspace.set(key, cmd.arg(2));
         Reply.simple(out, "OK");
+    }
+
+    private void incr(Command cmd, OutputStream out) throws IOException{
+        if(cmd.argc() != 2){
+            Reply.error(out, wrongArgs("incr"));
+            return;
+        }
+        String key = new String(cmd.arg(1), StandardCharsets.ISO_8859_1);
+        try{
+            Reply.integer(out, keyspace.incr(key));
+        }
+        catch(NumberFormatException e){
+            Reply.error(out, "ERR value is not an integer or is out of range");
+        }  
+        catch(ArithmeticException e){
+            Reply.error(out, "ERR incr overflows");
+        }
     }
 
     private String wrongArgs(String name){
