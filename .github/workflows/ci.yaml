@@ -16,7 +16,7 @@ jobs:
           java-version: '21'
 
       - name: Compile
-        run: javac -d out $(find src -name '*.java')
+        run: javac -d out $(find src test -name '*.java')
 
       - name: Run Parser Tests
         run: java -cp out server.ParserTest
