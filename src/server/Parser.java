@@ -74,21 +74,28 @@ public final class Parser{
 
     private Command parseInline() throws ProtocolError{
         
-        int posCRLF = buf.findCRLF(pos);
+        // A terminal sends a bare \n; a network client sends \r\n. Terminate on
+        // the \n and treat a preceding \r as part of the terminator.
+        int posLF = buf.findLF(pos);
 
-        int lineLen = (posCRLF == -1) ? buf.readableBytes(pos) : posCRLF;
+        int lineLen = (posLF == -1) ? buf.readableBytes(pos) : posLF - pos;
 
         if (lineLen > MAX_INLINE){
             throw new ProtocolError("too big inline request");
         }
-        if (posCRLF == -1){
+        if (posLF == -1){
             return null;
+        }
+
+        int lineEnd = posLF;
+        if(lineEnd > pos && buf.at(lineEnd - 1) == '\r'){
+            lineEnd--;
         }
 
         List<byte[]> args = new ArrayList<>();
         int tokenStart = pos;
-        for(int i = pos; i <= posCRLF; i++){
-            if(i == posCRLF || buf.at(i) == ' '){
+        for(int i = pos; i <= lineEnd; i++){
+            if(i == lineEnd || buf.at(i) == ' '){
                 
 
                 // Ensure groups of spaces aren't counted
@@ -102,7 +109,7 @@ public final class Parser{
                 tokenStart = i + 1;
             }
         }
-        pos = posCRLF + 2;
+        pos = posLF + 1;
         return new Command(args.toArray(new byte[0][]));
 
     }
