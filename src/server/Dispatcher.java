@@ -2,15 +2,20 @@ package server;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 
 // Routes a parsed Command to its implementation and writes exactly one reply.
 // This is the only layer that knows what commands mean -- Buffer knows bytes,
 // Parser knows RESP syntax, neither knows that GET reads and SET writes.
 public final class Dispatcher{
 
-    private Dispatcher(){}
+    private final Keyspace keyspace;
 
-    public static void dispatch(Command cmd, OutputStream out) throws IOException{
+    public Dispatcher(Keyspace keyspace){
+        this.keyspace = keyspace;
+    }
+
+    public void dispatch(Command cmd, OutputStream out) throws IOException{
         // Empty inline line or *0 -- Redis sends no reply at all. The one
         // legitimate exception to one-command-one-reply.
         if(cmd.argc() == 0){
@@ -21,6 +26,9 @@ public final class Dispatcher{
             switch(cmd.name()){
                 case "PING" -> ping(cmd, out);
                 case "ECHO" -> echo(cmd, out);
+                case "GET"  -> get(cmd, out);
+                case "SET"  -> set(cmd, out);
+                case "INCR" -> incr(cmd, out);
                 default     -> Reply.error(out, "ERR unknown command '" + cmd.name() + "'");
             }
         }
@@ -31,7 +39,7 @@ public final class Dispatcher{
         }
     }
 
-    private static void ping(Command cmd, OutputStream out) throws IOException{
+    private void ping(Command cmd, OutputStream out) throws IOException{
         if(cmd.argc() == 1){
             Reply.simple(out, "PONG");
         }
@@ -43,7 +51,7 @@ public final class Dispatcher{
         }
     }
 
-    private static void echo(Command cmd, OutputStream out) throws IOException{
+    private void echo(Command cmd, OutputStream out) throws IOException{
         if(cmd.argc() == 2){
             Reply.bulk(out, cmd.arg(1));
         }
@@ -52,7 +60,52 @@ public final class Dispatcher{
         }
     }
 
-    private static String wrongArgs(String name){
+    private void get(Command cmd, OutputStream out) throws IOException{
+        if(cmd.argc() != 2){
+            Reply.error(out, wrongArgs("get"));
+            return;
+        }
+        String key = new String(cmd.arg(1), StandardCharsets.ISO_8859_1);
+
+        byte[] value = keyspace.get(key);
+
+        if(value == null){
+            Reply.nullBulk(out);
+        }
+        else{
+            Reply.bulk(out, value);
+        }
+    }
+
+    private void set(Command cmd, OutputStream out) throws IOException{
+        if(cmd.argc() != 3){
+            Reply.error(out, wrongArgs("set"));
+            return;
+        }
+        String key = new String(cmd.arg(1), StandardCharsets.ISO_8859_1);
+
+        keyspace.set(key, cmd.arg(2));
+        Reply.simple(out, "OK");
+    }
+
+    private void incr(Command cmd, OutputStream out) throws IOException{
+        if(cmd.argc() != 2){
+            Reply.error(out, wrongArgs("incr"));
+            return;
+        }
+        String key = new String(cmd.arg(1), StandardCharsets.ISO_8859_1);
+        try{
+            Reply.integer(out, keyspace.incr(key));
+        }
+        catch(NumberFormatException e){
+            Reply.error(out, "ERR value is not an integer or is out of range");
+        }  
+        catch(ArithmeticException e){
+            Reply.error(out, "ERR incr overflows");
+        }
+    }
+
+    private String wrongArgs(String name){
         return "ERR wrong number of arguments for '" + name + "' command";
     }
 }
