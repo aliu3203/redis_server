@@ -2,6 +2,8 @@ package server;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayDeque;
+import java.util.Deque;
 
 
 public class Keyspace{
@@ -160,16 +162,43 @@ public class Keyspace{
         return popped[0];
     }
 
-    public Popped blpop(String key, long timeoutMs){
+    public Popped blpop(String key, long timeoutMs) throws InterruptedException{
+
         Stripe stripe = stripeFor(key);
+        Waiter w;
         stripe.lock.lock();
         try{
             byte[] v = popHeadLocked(key);
-            return (v == null) ? null : new Popped(key, v);
+            if(v != null) return new Popped(key, v);
+            w = new Waiter();
+            stripe.waiters.computeIfAbsent(key, (k) -> new ArrayDeque<>()).addLast(w);
         }
         finally{
             stripe.lock.unlock();
         }
+
+        Popped p;
+        try{
+            p = w.await(timeoutMs);
+        }
+        catch(InterruptedException e){
+            if(w.cancel()){
+                removeFromLine(stripe, key, w);
+                throw e;
+            }
+            Popped claimed = takeUninterruptibly(w);
+            lpush(claimed.key(), claimed.value());
+            throw e;
+        }
+        
+        if(p == null){
+            if(w.cancel()){
+                removeFromLine(stripe, key, w);
+                return null;
+            }
+            w.await(0);
+        }
+        return p;
     }
 
     // Shared type dispatch for the list commands: absent -> a fresh empty list,
@@ -182,5 +211,37 @@ public class Keyspace{
             return l;
         }
         throw new WrongTypeException();
+    }
+
+    private void removeFromLine(Stripe stripe, String key, Waiter w){
+        stripe.lock.lock();
+        try{
+            Deque<Waiter> line = stripe.waiters.get(key);
+
+            if(line != null){
+                line.remove(w);
+                if(line.isEmpty()){
+                    stripe.waiters.remove(key);
+                }
+            }
+        }
+        finally{
+            stripe.lock.unlock();
+        }
+    }
+    
+    private Popped takeUninterruptibly(Waiter w){
+        boolean interrupted = false;
+        try{
+            while(true){
+                try{
+                    return w.await(0);
+                } catch(InterruptedException e){
+                    interrupted = true;          // remember it, keep waiting
+                }
+            }
+        } finally{
+            if(interrupted) Thread.currentThread().interrupt();   // restore on the way out
+        }
     }
 }

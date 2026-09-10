@@ -248,6 +248,9 @@ public final class Dispatcher{
         catch(WrongTypeException e){
             Reply.error(out, e.getMessage());
         }
+        catch(InterruptedException e){
+            Reply.error(out, "ERR Interrupted thread");
+        }
     }
 
     private String wrongArgs(String name){
