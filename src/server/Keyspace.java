@@ -258,6 +258,20 @@ public class Keyspace{
         throw new WrongTypeException();
     }
 
+    // For tests: how many waiters are in key's line right now, including any
+    // that have timed out but not yet removed themselves.
+    int waitersFor(String key){
+        Stripe s = stripeFor(key);
+        s.lock.lock();
+        try{
+            Deque<Waiter> line = s.waiters.get(key);
+            return (line == null) ? 0 : line.size();
+        }
+        finally{
+            s.lock.unlock();
+        }
+    }
+
     private void removeFromLine(Stripe stripe, String key, Waiter w){
         stripe.lock.lock();
         try{
