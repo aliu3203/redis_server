@@ -17,27 +17,31 @@ public final class Waiter{
     private final AtomicReference<State> state = new AtomicReference<>(State.PENDING);
 
     // Capacity 1: exactly one delivery ever happens.
-    private final ArrayBlockingQueue<Object[]> slot = new ArrayBlockingQueue<>(1);
+    private final ArrayBlockingQueue<Popped> slot = new ArrayBlockingQueue<>(1);
 
     // Called by a pushing thread. Returns false if this waiter was already
     // fulfilled or cancelled, in which case the caller still owns the element.
     boolean tryDeliver(String key, byte[] value){
-        // TODO: CAS PENDING -> FULFILLED, then slot.offer(new Object[]{key, value})
-        return false;
+        if(!state.compareAndSet(State.PENDING, State.FULFILLED)){
+            return false;                         // already claimed: pusher keeps the value
+        }
+        slot.offer(new Popped(key, value));       // we own it now, so deliver
+        return true;
     }
 
     // Called by the blocked thread on timeout or on disconnect cleanup.
     // Returns false if a pusher already claimed it -- meaning a value is on its
     // way and must still be consumed rather than lost.
     boolean cancel(){
-        // TODO: CAS PENDING -> CANCELLED
-        return false;
+        return state.compareAndSet(State.PENDING, State.CANCELLED);
     }
 
     // Blocks up to timeoutMs. Returns {key, value}, or null on timeout.
     // timeoutMs <= 0 means block indefinitely (BLPOP's "0").
-    Object[] await(long timeoutMs) throws InterruptedException{
-        // TODO: slot.poll(timeoutMs, TimeUnit.MILLISECONDS), or slot.take() for 0
-        return null;
+    Popped await(long timeoutMs) throws InterruptedException{
+        if(timeoutMs > 0){
+            return slot.poll(timeoutMs, TimeUnit.MILLISECONDS);   // null on timeout
+        }
+        return slot.take();
     }
 }
