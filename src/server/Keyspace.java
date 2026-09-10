@@ -196,7 +196,7 @@ public class Keyspace{
                 removeFromLine(stripe, key, w);
                 return null;
             }
-            w.await(0);
+            p = takeUninterruptibly(w);
         }
         return p;
     }
