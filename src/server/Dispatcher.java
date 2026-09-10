@@ -67,13 +67,16 @@ public final class Dispatcher{
         }
         String key = new String(cmd.arg(1), StandardCharsets.ISO_8859_1);
 
-        byte[] value = keyspace.get(key);
+        RedisValue value = keyspace.get(key);
 
         if(value == null){
             Reply.nullBulk(out);
         }
+        else if(value instanceof RedisValue.Str s){
+            Reply.bulk(out, s.bytes());
+        }
         else{
-            Reply.bulk(out, value);
+            Reply.error(out, WrongTypeException.MESSAGE);
         }
     }
 
@@ -102,6 +105,12 @@ public final class Dispatcher{
         }  
         catch(ArithmeticException e){
             Reply.error(out, "ERR incr overflows");
+        }
+        catch(WrongTypeException e){
+            // Thrown from inside Keyspace.incr's compute lambda, where the type
+            // check has to live. Message comes from the exception so the wording
+            // cannot drift from the one get() writes.
+            Reply.error(out, e.getMessage());
         }
     }
 

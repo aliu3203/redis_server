@@ -104,8 +104,16 @@ public class ConcurrencyTest{
 
         long got;
         try{
-            byte[] raw = ks.get("counter");
-            got = (raw == null) ? 0 : Long.parseLong(new String(raw, StandardCharsets.ISO_8859_1));
+            RedisValue raw = ks.get("counter");
+            if(raw == null){
+                got = 0;                     // every thread died before writing
+            }
+            else if(raw instanceof RedisValue.Str s){
+                got = Long.parseLong(s.parse());
+            }
+            else{
+                throw new IllegalStateException("counter is not a string");
+            }
         }
         catch(RuntimeException e){
             System.out.printf("   run %d: read failed -- %s%n", run, e.getClass().getSimpleName());
