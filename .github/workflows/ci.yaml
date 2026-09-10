@@ -20,3 +20,6 @@ jobs:
 
       - name: Run Parser Tests
         run: java -cp out server.ParserTest
+
+      - name: Run Concurrency Test
+        run: java -cp out server.ConcurrencyTest

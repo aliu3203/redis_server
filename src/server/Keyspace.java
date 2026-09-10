@@ -2,10 +2,11 @@ package server;
 
 import java.util.Map;
 import java.util.HashMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.nio.charset.StandardCharsets;
 
 public class Keyspace{
-    private final Map<String, byte[]> data = new HashMap<>();
+    private final ConcurrentHashMap<String, byte[]> data = new ConcurrentHashMap<>();
 
     public byte[] get(String key){
         return data.get(key);
@@ -15,10 +16,11 @@ public class Keyspace{
     }
 
     public long incr(String key){
-        byte[] curr = data.get(key);
-        long n = (curr == null) ? 0 : Long.parseLong(new String(curr, StandardCharsets.ISO_8859_1));
-        n = Math.addExact(n, 1);
-        data.put(key, Long.toString(n).getBytes(StandardCharsets.ISO_8859_1));
-        return n;
+        byte[] updated = data.compute(key, (k, curr) -> {
+            long n = (curr == null) ? 0 : Long.parseLong(new String(curr, StandardCharsets.ISO_8859_1));
+            n = Math.addExact(n, 1);
+            return Long.toString(n).getBytes(StandardCharsets.ISO_8859_1);
+        });
+        return Long.parseLong(new String(updated, StandardCharsets.ISO_8859_1));
     }
 }
