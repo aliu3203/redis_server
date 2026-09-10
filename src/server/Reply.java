@@ -62,6 +62,13 @@ public final class Reply{
         out.write(ascii(Integer.toString(count)));
         out.write(CRLF);
     }
+    
+    // *-1\r\n -- BLPOP timed out
+    public static void nullArray(OutputStream out) throws IOException{
+        out.write('*');
+        out.write(ascii("-1"));
+        out.write(CRLF);
+    }
 
     private static byte[] ascii(String s){
         return s.getBytes(StandardCharsets.ISO_8859_1);

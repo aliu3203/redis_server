@@ -149,6 +149,17 @@ public class Keyspace{
         }
     }
 
+    public Popped blpop(String key, long timeoutMs){
+        Stripe stripe = stripeFor(key);
+        stripe.lock.lock();
+        try{
+            
+        }
+        finally{
+            stripe.lock.unlock();
+        }
+    }
+
     // Shared type dispatch for the list commands: absent -> a fresh empty list,
     // a list -> itself, anything else -> WRONGTYPE.
     private static RedisValue.ListValue asList(RedisValue curr){

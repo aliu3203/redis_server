@@ -34,6 +34,7 @@ public final class Dispatcher{
                 case "LPOP"  -> lpop(cmd, out);
                 case "RPOP"  -> rpop(cmd, out);
                 case "LLEN"  -> llen(cmd, out);
+                case "BLPOP" -> blpop(cmd, out);
                 default     -> Reply.error(out, "ERR unknown command '" + cmd.name() + "'");
             }
         }
@@ -203,6 +204,38 @@ public final class Dispatcher{
         }
         catch(WrongTypeException e){
             Reply.error(out, e.getMessage());
+        }
+    }
+
+    private void blpop(Command cmd, OutputStream out) throws IOException{
+        if(cmd.argc() < 3){
+            Reply.error(out, wrongArgs("blpop"));
+            return;
+        }
+
+        String key = new String(cmd.arg(1), StandardCharsets.ISO_8859_1);
+
+        String t = new String(cmd.arg(cmd.argc() - 1), StandardCharsets.ISO_8859_1);
+        double seconds;
+        try{
+            seconds = Double.parseDouble(t);
+        } catch(NumberFormatException e){
+            Reply.error(out, "ERR timeout is not a float or out of range");
+            return;
+        }
+        if(seconds < 0 || Double.isNaN(seconds) || Double.isInfinite(seconds)){
+            Reply.error(out, "ERR timeout is negative");
+            return;
+        }
+        long timeoutMs = (long)(seconds * 1000);     // 0 = block forever
+
+        Popped p = keyspace.blpop(key, timeoutMs);
+        if(p == null){
+            Reply.nullArray(out);
+        } else {
+            Reply.arrayHeader(out, 2);
+            Reply.bulk(out, p.key().getBytes(StandardCharsets.ISO_8859_1));
+            Reply.bulk(out, p.value());
         }
     }
 
