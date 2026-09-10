@@ -1,6 +1,7 @@
 package server;
 
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class ConcurrencyTest{
@@ -11,6 +12,12 @@ public class ConcurrencyTest{
     private static final int TARGET = THREADS*NUM_OPS;
 
     private static final long TIMEOUT_MS = 5000;
+
+    // Test D: consumers BLPOP while producers RPUSH, on one key.
+    private static final int D_THREADS = 20;             // per side
+    private static final int D_OPS = 1000;               // per thread
+    private static final int D_TARGET = D_THREADS * D_OPS;
+    private static final long D_BLPOP_TIMEOUT_MS = 2000;
 
     private static final byte[] VALUE = {'v'};
 
@@ -32,6 +39,13 @@ public class ConcurrencyTest{
         System.out.println("C: " + THREADS + " threads x " + NUM_OPS + " LPUSH on ONE key");
         for(int i = 1; i <= RUNS; i++){
             ok &= runC(i);
+        }
+
+        System.out.println();
+        System.out.println("D: " + D_THREADS + " threads BLPOP x " + D_OPS + " while "
+                           + D_THREADS + " threads RPUSH x " + D_OPS + " on ONE key");
+        for(int i = 1; i <= RUNS; i++){
+            ok &= runD(i);
         }
 
         System.out.println();
@@ -220,5 +234,76 @@ public class ConcurrencyTest{
             return false;
         }
         return report(run, "list", got, stuck, errors.get());
+    }
+
+    // Blocking handoff under contention. Consumers BLPOP exactly as many times as
+    // producers push, so every value must reach exactly one consumer. A value
+    // received twice was duplicated; a value never received was lost, and some
+    // consumer times out waiting for it; anything left in the list is a value a
+    // consumer gave up on while it was there.
+    public static boolean runD(int run) throws InterruptedException{
+        final Keyspace ks = new Keyspace();
+        Thread[] ts = new Thread[D_THREADS * 2];
+        AtomicInteger errors = new AtomicInteger();
+        AtomicInteger timeouts = new AtomicInteger();
+        ConcurrentHashMap<String, Integer> received = new ConcurrentHashMap<>();
+
+        for(int i = 0; i < D_THREADS; i++){
+            ts[i] = Thread.ofPlatform().daemon().start(() -> {
+                try{
+                    for(int k = 0; k < D_OPS; k++){
+                        Popped p = ks.blpop("jobs", D_BLPOP_TIMEOUT_MS, () -> false);
+                        if(p == null){
+                            timeouts.incrementAndGet();
+                        }
+                        else{
+                            received.merge(new String(p.value(), StandardCharsets.ISO_8859_1), 1, Integer::sum);
+                        }
+                    }
+                }
+                catch(RuntimeException | InterruptedException e){
+                    errors.incrementAndGet();
+                }
+            });
+        }
+        for(int i = 0; i < D_THREADS; i++){
+            final int id = i;
+            ts[D_THREADS + i] = Thread.ofPlatform().daemon().start(() -> {
+                try{
+                    for(int k = 0; k < D_OPS; k++){
+                        ks.rpush("jobs", ("p" + id + "_" + k).getBytes(StandardCharsets.ISO_8859_1));
+                    }
+                }
+                catch(RuntimeException e){
+                    errors.incrementAndGet();
+                }
+            });
+        }
+
+        int stuck = awaitAll(ts);
+        if(stuck > 0){
+            return report(run, "values", 0, stuck, errors.get());
+        }
+
+        long once = 0;
+        long duplicated = 0;
+        for(int n : received.values()){
+            if(n == 1){
+                once++;
+            }
+            else{
+                duplicated++;
+            }
+        }
+        long lost = D_TARGET - received.size();
+        long left = ks.llen("jobs");
+
+        boolean pass = once == D_TARGET && duplicated == 0 && left == 0
+                       && timeouts.get() == 0 && errors.get() == 0;
+        String note = pass ? "ok"
+                           : "lost " + lost + ", duplicated " + duplicated + ", left in list " + left
+                             + ", timeouts " + timeouts.get() + ", threw " + errors.get();
+        System.out.printf("   run %d: %-7s = %,7d / %,d   %s%n", run, "values", once, D_TARGET, note);
+        return pass;
     }
 }
