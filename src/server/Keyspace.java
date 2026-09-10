@@ -149,11 +149,23 @@ public class Keyspace{
         }
     }
 
+    private byte[] popHeadLocked(String key){
+        byte[][] popped = new byte[1][];
+        data.compute(key, (k, curr) -> {
+            if(curr == null) return null;
+            RedisValue.ListValue l = asList(curr);
+            popped[0] = l.items().pollFirst();
+            return l.items().isEmpty() ? null : l;
+        });
+        return popped[0];
+    }
+
     public Popped blpop(String key, long timeoutMs){
         Stripe stripe = stripeFor(key);
         stripe.lock.lock();
         try{
-            
+            byte[] v = popHeadLocked(key);
+            return (v == null) ? null : new Popped(key, v);
         }
         finally{
             stripe.lock.unlock();

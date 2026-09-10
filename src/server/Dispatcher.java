@@ -213,6 +213,12 @@ public final class Dispatcher{
             return;
         }
 
+        // TEMP
+        if(cmd.argc() > 3){
+            Reply.error(out, "ERR multi-key BLPOP not supported yet");
+            return;
+        }
+
         String key = new String(cmd.arg(1), StandardCharsets.ISO_8859_1);
 
         String t = new String(cmd.arg(cmd.argc() - 1), StandardCharsets.ISO_8859_1);
@@ -229,13 +235,18 @@ public final class Dispatcher{
         }
         long timeoutMs = (long)(seconds * 1000);     // 0 = block forever
 
-        Popped p = keyspace.blpop(key, timeoutMs);
-        if(p == null){
-            Reply.nullArray(out);
-        } else {
-            Reply.arrayHeader(out, 2);
-            Reply.bulk(out, p.key().getBytes(StandardCharsets.ISO_8859_1));
-            Reply.bulk(out, p.value());
+        try{
+            Popped p = keyspace.blpop(key, timeoutMs);
+            if(p == null){
+                Reply.nullArray(out);
+            } else {
+                Reply.arrayHeader(out, 2);
+                Reply.bulk(out, p.key().getBytes(StandardCharsets.ISO_8859_1));
+                Reply.bulk(out, p.value());
+            }
+        }
+        catch(WrongTypeException e){
+            Reply.error(out, e.getMessage());
         }
     }
 
