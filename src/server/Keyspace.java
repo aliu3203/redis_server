@@ -56,6 +56,13 @@ public class Keyspace{
         Stripe s = stripeFor(key);
         s.lock.lock();
         try{
+            if(data.get(key) instanceof RedisValue.Str){
+                throw new WrongTypeException();
+            }
+
+            if(serveWaiter(s, key, value) == true){
+                return 1;
+            }
             long[] len = new long[1];
             data.compute(key, (k, curr) -> {
                 RedisValue.ListValue l = asList(curr);        // creates if absent, throws if Str
@@ -75,6 +82,14 @@ public class Keyspace{
         Stripe s = stripeFor(key);
         s.lock.lock();
         try{
+            if(data.get(key) instanceof RedisValue.Str){
+                throw new WrongTypeException();
+            }
+
+            if(serveWaiter(s, key, value) == true){
+                return 1;
+            }
+
             long[] len = new long[1];
             data.compute(key, (k, curr) -> {
                 RedisValue.ListValue l = asList(curr);        // creates if absent, throws if Str
@@ -243,5 +258,25 @@ public class Keyspace{
         } finally{
             if(interrupted) Thread.currentThread().interrupt();   // restore on the way out
         }
+    }
+
+    private boolean serveWaiter(Stripe s, String key, byte[] value){
+        Deque<Waiter> line = s.waiters.get(key);
+        if(line == null) return false;
+        while(!line.isEmpty()){
+            Waiter w = line.pollFirst();
+            if(w.tryDeliver(key, value)){
+                if(line.isEmpty()){
+                    s.waiters.remove(key);
+                }
+                return true;
+            }
+        }
+        // remaining dead waiters
+        s.waiters.remove(key);
+
+        // no waiters served
+        return false;
+
     }
 }

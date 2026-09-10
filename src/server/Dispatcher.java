@@ -235,6 +235,10 @@ public final class Dispatcher{
         }
         long timeoutMs = (long)(seconds * 1000);     // 0 = block forever
 
+        if(seconds > 0 && timeoutMs == 0){
+            timeoutMs = 1;
+        }
+        out.flush();
         try{
             Popped p = keyspace.blpop(key, timeoutMs);
             if(p == null){
@@ -249,7 +253,8 @@ public final class Dispatcher{
             Reply.error(out, e.getMessage());
         }
         catch(InterruptedException e){
-            Reply.error(out, "ERR Interrupted thread");
+            Thread.currentThread().interrupt();
+            throw new IOException("interrupted while blocked in BLPOP", e);
         }
     }
 
