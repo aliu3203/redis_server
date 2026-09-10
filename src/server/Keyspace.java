@@ -5,7 +5,22 @@ import java.nio.charset.StandardCharsets;
 
 
 public class Keyspace{
+
+    private static final int NUM_STRIPES = 64;
+
     private final ConcurrentHashMap<String, RedisValue> data = new ConcurrentHashMap<>();
+
+    private final Stripe[] stripes = new Stripe[NUM_STRIPES];
+
+    public Keyspace(){
+        for(int i = 0; i < NUM_STRIPES; i++){
+            stripes[i] = new Stripe();
+        }
+    }
+
+    private Stripe stripeFor(String key){
+        return stripes[Math.floorMod(key.hashCode(), stripes.length)];
+    }
 
     public RedisValue get(String key){
         return data.get(key);
@@ -36,26 +51,40 @@ public class Keyspace{
 
     // LPUSH key value -- prepend. Returns the new length.
     public long lpush(String key, byte[] value){
-        long[] len = new long[1];
-        data.compute(key, (k, curr) -> {
-            RedisValue.ListValue l = asList(curr);        // creates if absent, throws if Str
-            l.items().addFirst(value);
-            len[0] = l.items().size();
-            return l;
-        });
-        return len[0];
+        Stripe s = stripeFor(key);
+        s.lock.lock();
+        try{
+            long[] len = new long[1];
+            data.compute(key, (k, curr) -> {
+                RedisValue.ListValue l = asList(curr);        // creates if absent, throws if Str
+                l.items().addFirst(value);
+                len[0] = l.items().size();
+                return l;
+            });
+            return len[0];
+        }
+        finally{
+            s.lock.unlock();
+        }
     }
 
     // RPUSH key value -- append. Same shape as lpush, addLast instead.
     public long rpush(String key, byte[] value){
-        long[] len = new long[1];
-        data.compute(key, (k, curr) -> {
-            RedisValue.ListValue l = asList(curr);        // creates if absent, throws if Str
-            l.items().addLast(value);
-            len[0] = l.items().size();
-            return l;
-        });
-        return len[0];
+        Stripe s = stripeFor(key);
+        s.lock.lock();
+        try{
+            long[] len = new long[1];
+            data.compute(key, (k, curr) -> {
+                RedisValue.ListValue l = asList(curr);        // creates if absent, throws if Str
+                l.items().addLast(value);
+                len[0] = l.items().size();
+                return l;
+            });
+            return len[0];
+        }
+        finally{
+            s.lock.unlock();
+        }
     }
 
     // LPOP key -- remove and return the head, or null if the key is absent.
@@ -63,40 +92,61 @@ public class Keyspace{
     // Returning null FROM THE LAMBDA deletes the entry. That is how an emptied
     // list stops existing, so EXISTS/KEYS do not report a phantom key.
     public byte[] lpop(String key){
-        byte[][] popped = new byte[1][];
-        data.compute(key, (k, curr) -> {
-            if(curr == null){
-                return null;                              // absent stays absent
-            }
-            RedisValue.ListValue l = asList(curr);
-            popped[0] = l.items().pollFirst();
-            return l.items().isEmpty() ? null : l;
-        });
-        return popped[0];
+        Stripe s = stripeFor(key);
+        s.lock.lock();
+        try{
+            byte[][] popped = new byte[1][];
+            data.compute(key, (k, curr) -> {
+                if(curr == null){
+                    return null;                              // absent stays absent
+                }
+                RedisValue.ListValue l = asList(curr);
+                popped[0] = l.items().pollFirst();
+                return l.items().isEmpty() ? null : l;
+            });
+            return popped[0];
+        }
+        finally{
+            s.lock.unlock();
+        }
     }
 
     // RPOP key -- same as lpop, pollLast instead.
     public byte[] rpop(String key){
-        byte[][] popped = new byte[1][];
-        data.compute(key, (k, curr) -> {
-            if(curr == null){
-                return null;                              // absent stays absent
-            }
-            RedisValue.ListValue l = asList(curr);
-            popped[0] = l.items().pollLast();
-            return l.items().isEmpty() ? null : l;
-        });
-        return popped[0];
+        Stripe s = stripeFor(key);
+        s.lock.lock();
+        try{
+            byte[][] popped = new byte[1][];
+            data.compute(key, (k, curr) -> {
+                if(curr == null){
+                    return null;                              // absent stays absent
+                }
+                RedisValue.ListValue l = asList(curr);
+                popped[0] = l.items().pollLast();
+                return l.items().isEmpty() ? null : l;
+            });
+            return popped[0];
+        }
+        finally{
+            s.lock.unlock();
+        }
     }
 
     // LLEN key -- 0 if absent.
     public long llen(String key){
-        long[] len = new long[1];
-        data.computeIfPresent(key, (k, curr) -> {
-            len[0] = asList(curr).items().size();
-            return curr;
-        });
-        return len[0];
+        Stripe s = stripeFor(key);
+        s.lock.lock();
+        try{
+            long[] len = new long[1];
+            data.computeIfPresent(key, (k, curr) -> {
+                len[0] = asList(curr).items().size();
+                return curr;
+            });
+            return len[0];
+        }
+        finally{
+            s.lock.unlock();
+        }
     }
 
     // Shared type dispatch for the list commands: absent -> a fresh empty list,
