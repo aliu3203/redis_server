@@ -31,5 +31,11 @@ public sealed interface RedisValue permits RedisValue.Str, RedisValue.ListValue{
         static ListValue empty(){
             return new ListValue(new ArrayDeque<>());
         }
+        public Deque<byte[]> items(){
+            return this.items;
+        }
+        public boolean isEmpty(){
+            return (items.size() == 0) ? true : false;
+        }
     }
 }

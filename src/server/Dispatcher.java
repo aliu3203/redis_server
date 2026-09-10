@@ -29,6 +29,11 @@ public final class Dispatcher{
                 case "GET"  -> get(cmd, out);
                 case "SET"  -> set(cmd, out);
                 case "INCR" -> incr(cmd, out);
+                case "LPUSH" -> lpush(cmd, out);
+                case "RPUSH" -> rpush(cmd, out);
+                case "LPOP"  -> lpop(cmd, out);
+                case "RPOP"  -> rpop(cmd, out);
+                case "LLEN"  -> llen(cmd, out);
                 default     -> Reply.error(out, "ERR unknown command '" + cmd.name() + "'");
             }
         }
@@ -110,6 +115,93 @@ public final class Dispatcher{
             // Thrown from inside Keyspace.incr's compute lambda, where the type
             // check has to live. Message comes from the exception so the wording
             // cannot drift from the one get() writes.
+            Reply.error(out, e.getMessage());
+        }
+    }
+
+    // ---- list commands ---------------------------------------------------
+
+    // LPUSH key value  ->  :<new length>
+    private void lpush(Command cmd, OutputStream out) throws IOException{
+        if(cmd.argc() != 3){
+            Reply.error(out, wrongArgs("lpush"));
+            return;
+        }
+        String key = new String(cmd.arg(1), StandardCharsets.ISO_8859_1);
+        try{
+            Reply.integer(out, keyspace.lpush(key, cmd.arg(2)));
+        }
+        catch(WrongTypeException e){
+            Reply.error(out, e.getMessage());
+        }
+    }
+
+    private void rpush(Command cmd, OutputStream out) throws IOException{
+        if(cmd.argc() != 3){
+            Reply.error(out, wrongArgs("rpush"));
+            return;
+        }
+        String key = new String(cmd.arg(1), StandardCharsets.ISO_8859_1);
+        try{
+            Reply.integer(out, keyspace.rpush(key, cmd.arg(2)));
+        }
+        catch(WrongTypeException e){
+            Reply.error(out, e.getMessage());
+        }
+    }
+
+    // LPOP key  ->  $<len>value   or   $-1 if the key is absent
+    private void lpop(Command cmd, OutputStream out) throws IOException{
+        if(cmd.argc() != 2){
+            Reply.error(out, wrongArgs("lpop"));
+            return;
+        }
+        String key = new String(cmd.arg(1), StandardCharsets.ISO_8859_1);
+        try{
+            byte[] popped = keyspace.lpop(key);
+            if(popped == null){
+                Reply.nullBulk(out);
+            }
+            else{
+                Reply.bulk(out, popped);
+            }
+        }
+        catch(WrongTypeException e){
+            Reply.error(out, e.getMessage());
+        }
+    }
+
+    private void rpop(Command cmd, OutputStream out) throws IOException{
+        if(cmd.argc() != 2){
+            Reply.error(out, wrongArgs("rpop"));
+            return;
+        }
+        String key = new String(cmd.arg(1), StandardCharsets.ISO_8859_1);
+        try{
+            byte[] popped = keyspace.rpop(key);
+            if(popped == null){
+                Reply.nullBulk(out);
+            }
+            else{
+                Reply.bulk(out, popped);
+            }
+        }
+        catch(WrongTypeException e){
+            Reply.error(out, e.getMessage());
+        }
+    }
+
+    // LLEN key  ->  :<n>   (0 when absent, WRONGTYPE when it is a string)
+    private void llen(Command cmd, OutputStream out) throws IOException{
+        if(cmd.argc() != 2){
+            Reply.error(out, wrongArgs("llen"));
+            return;
+        }
+        String key = new String(cmd.arg(1), StandardCharsets.ISO_8859_1);
+        try{
+            Reply.integer(out, keyspace.llen(key));
+        }
+        catch(WrongTypeException e){
             Reply.error(out, e.getMessage());
         }
     }
