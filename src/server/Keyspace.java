@@ -1,7 +1,5 @@
 package server;
 
-import java.util.Map;
-import java.util.HashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.nio.charset.StandardCharsets;
 
@@ -22,8 +20,7 @@ public class Keyspace{
             if(curr == null){
                 n = 0;
             }
-            else if(curr instanceof RedisValue.Str){
-                RedisValue.Str s = (RedisValue.Str)curr;
+            else if(curr instanceof RedisValue.Str s){
                 n = Long.parseLong(s.parse());
             }
             else{

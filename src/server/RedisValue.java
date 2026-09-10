@@ -15,6 +15,9 @@ public sealed interface RedisValue permits RedisValue.Str, RedisValue.ListValue{
         public String parse(){
             return new String(bytes, StandardCharsets.ISO_8859_1);
         }
+        public byte[] bytes(){
+            return this.bytes;
+        }
 
     }
 
