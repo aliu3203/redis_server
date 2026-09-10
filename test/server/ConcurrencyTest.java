@@ -29,6 +29,12 @@ public class ConcurrencyTest{
         }
 
         System.out.println();
+        System.out.println("C: " + THREADS + " threads x " + NUM_OPS + " LPUSH on ONE key");
+        for(int i = 1; i <= RUNS; i++){
+            ok &= runC(i);
+        }
+
+        System.out.println();
         System.out.println(ok ? "PASS" : "FAIL");
         if(!ok){
             System.exit(1);
@@ -168,5 +174,51 @@ public class ConcurrencyTest{
             return false;
         }
         return report(run, "keys", found, stuck, errors.get());
+    }
+
+    public static boolean runC(int run) throws InterruptedException{
+        final Keyspace ks = new Keyspace();
+        Thread[] ts = new Thread[THREADS];
+        AtomicInteger errors = new AtomicInteger();
+
+        for(int i = 0; i < THREADS; i++){
+            ts[i] = Thread.ofPlatform().daemon().start(()->{
+                try{
+                    for(int k = 0; k < NUM_OPS; k++){
+                        ks.lpush("list", VALUE);
+                    }
+                }
+                catch(RuntimeException e){
+                    // A corrupted map can throw from inside put/get. The thread
+                    // dies here and loses its remaining increments -- tally it so
+                    // that shows up as a cause rather than as mysterious loss.
+                    errors.incrementAndGet();
+                }
+            });
+        }
+
+        int stuck = awaitAll(ts);
+        if(stuck > 0){
+            return report(run, "list", 0, stuck, errors.get());
+        }
+
+        long got;
+        try{
+            RedisValue raw = ks.get("list");
+            if(raw == null){
+                got = 0;                     // every thread died before writing
+            }
+            else if(raw instanceof RedisValue.ListValue){
+                got = ks.llen("list");
+            }
+            else{
+                throw new IllegalStateException("RedisValue is not a list");
+            }
+        }
+        catch(RuntimeException e){
+            System.out.printf("   run %d: read failed -- %s%n", run, e.getClass().getSimpleName());
+            return false;
+        }
+        return report(run, "list", got, stuck, errors.get());
     }
 }
