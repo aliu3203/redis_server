@@ -3,6 +3,7 @@ package server;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.function.BooleanSupplier;
 
 // Routes a parsed Command to its implementation and writes exactly one reply.
 // This is the only layer that knows what commands mean -- Buffer knows bytes,
@@ -15,7 +16,7 @@ public final class Dispatcher{
         this.keyspace = keyspace;
     }
 
-    public void dispatch(Command cmd, OutputStream out) throws IOException{
+    public void dispatch(Command cmd, OutputStream out, BooleanSupplier clientGone) throws IOException{
         // Empty inline line or *0 -- Redis sends no reply at all. The one
         // legitimate exception to one-command-one-reply.
         if(cmd.argc() == 0){
@@ -34,7 +35,7 @@ public final class Dispatcher{
                 case "LPOP"  -> lpop(cmd, out);
                 case "RPOP"  -> rpop(cmd, out);
                 case "LLEN"  -> llen(cmd, out);
-                case "BLPOP" -> blpop(cmd, out);
+                case "BLPOP" -> blpop(cmd, out, clientGone);
                 default     -> Reply.error(out, "ERR unknown command '" + cmd.name() + "'");
             }
         }
@@ -207,7 +208,7 @@ public final class Dispatcher{
         }
     }
 
-    private void blpop(Command cmd, OutputStream out) throws IOException{
+    private void blpop(Command cmd, OutputStream out, BooleanSupplier clientGone) throws IOException{
         if(cmd.argc() < 3){
             Reply.error(out, wrongArgs("blpop"));
             return;
@@ -240,9 +241,15 @@ public final class Dispatcher{
         }
         out.flush();
         try{
-            Popped p = keyspace.blpop(key, timeoutMs);
+            Popped p = keyspace.blpop(key, timeoutMs, clientGone);
             if(p == null){
                 Reply.nullArray(out);
+            } else if(clientGone.getAsBoolean()){
+                // Woke up holding a value, but the client left while we waited.
+                // Writing the reply would appear to succeed and the value would be
+                // lost, so hand it back instead -- to the head, where BLPOP took it.
+                keyspace.lpush(p.key(), p.value());
+                throw new IOException("client disconnected while blocked in BLPOP");
             } else {
                 Reply.arrayHeader(out, 2);
                 Reply.bulk(out, p.key().getBytes(StandardCharsets.ISO_8859_1));

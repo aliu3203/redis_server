@@ -4,11 +4,16 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.function.BooleanSupplier;
 
 
 public class Keyspace{
 
     private static final int NUM_STRIPES = 64;
+
+    // Longest single wait in BLPOP before re-checking that the client is still
+    // connected.
+    private static final long SLICE_MS = 1000;
 
     private final ConcurrentHashMap<String, RedisValue> data = new ConcurrentHashMap<>();
 
@@ -177,7 +182,7 @@ public class Keyspace{
         return popped[0];
     }
 
-    public Popped blpop(String key, long timeoutMs) throws InterruptedException{
+    public Popped blpop(String key, long timeoutMs, BooleanSupplier clientGone) throws InterruptedException{
 
         Stripe stripe = stripeFor(key);
         Waiter w;
@@ -192,28 +197,53 @@ public class Keyspace{
             stripe.lock.unlock();
         }
 
-        Popped p;
-        try{
-            p = w.await(timeoutMs);
-        }
-        catch(InterruptedException e){
-            if(w.cancel()){
-                removeFromLine(stripe, key, w);
+        // Wait in slices instead of one long wait, re-checking between slices
+        // that the client is still connected. Otherwise a client that
+        // disconnects during BLPOP ... 0 leaves its waiter in the line forever.
+        long deadline = (timeoutMs == 0) ? Long.MAX_VALUE
+                                         : System.currentTimeMillis() + timeoutMs;
+        while(true){
+            long remaining = deadline - System.currentTimeMillis();
+            if(remaining <= 0){
+                break;                                     // timed out
+            }
+            Popped p;
+            try{
+                p = w.await(Math.min(remaining, SLICE_MS));
+            }
+            catch(InterruptedException e){
+                abandon(stripe, key, w);
                 throw e;
             }
-            Popped claimed = takeUninterruptibly(w);
-            lpush(claimed.key(), claimed.value());
-            throw e;
-        }
-        
-        if(p == null){
-            if(w.cancel()){
-                removeFromLine(stripe, key, w);
+            if(p != null){
+                return p;
+            }
+            if(clientGone.getAsBoolean()){
+                abandon(stripe, key, w);
                 return null;
             }
-            p = takeUninterruptibly(w);
         }
-        return p;
+
+        // Timed out. If a pusher claimed w just before the deadline, its value is
+        // already committed to us, so collect it rather than reply *-1.
+        if(w.cancel()){
+            removeFromLine(stripe, key, w);
+            return null;
+        }
+        return takeUninterruptibly(w);
+    }
+
+    // The waiting client is leaving (interrupted or disconnected) and won't read
+    // a reply. If nobody has claimed w, take it out of the line. If a pusher
+    // already claimed it, that value must not be dropped: collect it and push it
+    // back, which hands it to the next waiter or returns it to the list.
+    private void abandon(Stripe stripe, String key, Waiter w){
+        if(w.cancel()){
+            removeFromLine(stripe, key, w);
+            return;
+        }
+        Popped claimed = takeUninterruptibly(w);
+        lpush(claimed.key(), claimed.value());
     }
 
     // Shared type dispatch for the list commands: absent -> a fresh empty list,
