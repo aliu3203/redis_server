@@ -2,13 +2,21 @@ package server;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.nio.charset.StandardCharsets;
+
 
 // A value stored in the keyspace. A key holds exactly one of these at a time;
 // applying the wrong command to the wrong type is a -WRONGTYPE error.
 public sealed interface RedisValue permits RedisValue.Str, RedisValue.ListValue{
 
     // SET / GET / INCR operate on this.
-    record Str(byte[] bytes) implements RedisValue{}
+    record Str(byte[] bytes) implements RedisValue{
+        
+        public String parse(){
+            return new String(bytes, StandardCharsets.ISO_8859_1);
+        }
+
+    }
 
     // LPUSH / RPUSH / LPOP / RPOP / BLPOP operate on this.
     //
