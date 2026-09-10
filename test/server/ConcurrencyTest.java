@@ -11,6 +11,8 @@ public class ConcurrencyTest{
 
     private static final long TIMEOUT_MS = 5000;
 
+    private static final byte[] VALUE = {'v'};
+
     public static void main(String[] args) throws InterruptedException{
         boolean ok = true;
 
@@ -83,7 +85,33 @@ public class ConcurrencyTest{
     }
     public static boolean runB(int run) throws InterruptedException{
         Keyspace ks = new Keyspace();
+        Thread[] ts = new Thread[THREADS];
 
+        for(int i = 0; i < THREADS; i++){
+            final int id = i;
+            ts[i] = Thread.ofPlatform().daemon().start(() -> {
+                for(int k = 0; k < NUM_OPS; k++){
+                    ks.set("k"+id+"_" + k, VALUE);
+                }
+            });
+        }
+
+        long deadline = System.currentTimeMillis() + TIMEOUT_MS;
+        for(Thread t : ts){
+            long remaining = deadline-System.currentTimeMillis();
+            if(remaining <= 0){
+                break;
+            }
+            t.join(remaining);
+        }
+        int stuck = 0;
+        for(Thread t: ts){
+            if(t.isAlive()){
+                stuck++;
+            }
+        }
+
+        
         // TODO: 50 threads x NUM_OPS set("k<id>_<k>", VALUE), distinct keys.
         // Then count non-null gets single-threaded and:
         //     return report(run, "keys", found, stuck);
