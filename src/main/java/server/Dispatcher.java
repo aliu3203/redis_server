@@ -244,12 +244,6 @@ public final class Dispatcher{
             Popped p = keyspace.blpop(key, timeoutMs, clientGone);
             if(p == null){
                 Reply.nullArray(out);
-            } else if(clientGone.getAsBoolean()){
-                // Woke up holding a value, but the client left while we waited.
-                // Writing the reply would appear to succeed and the value would be
-                // lost, so hand it back instead -- to the head, where BLPOP took it.
-                keyspace.lpush(p.key(), p.value());
-                throw new IOException("client disconnected while blocked in BLPOP");
             } else {
                 Reply.arrayHeader(out, 2);
                 Reply.bulk(out, p.key().getBytes(StandardCharsets.ISO_8859_1));
@@ -262,6 +256,11 @@ public final class Dispatcher{
         catch(InterruptedException e){
             Thread.currentThread().interrupt();
             throw new IOException("interrupted while blocked in BLPOP", e);
+        }
+        catch(ClientGoneException e){
+            // Keyspace has already handed back anything the client was owed;
+            // close the connection without writing to it.
+            throw new IOException(e.getMessage(), e);
         }
     }
 

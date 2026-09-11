@@ -182,7 +182,8 @@ public class Keyspace{
         return popped[0];
     }
 
-    public Popped blpop(String key, long timeoutMs, BooleanSupplier clientGone) throws InterruptedException{
+    public Popped blpop(String key, long timeoutMs, BooleanSupplier clientGone)
+            throws InterruptedException, ClientGoneException{
 
         Stripe stripe = stripeFor(key);
         Waiter w;
@@ -216,11 +217,11 @@ public class Keyspace{
                 throw e;
             }
             if(p != null){
-                return p;
+                return handBackIfGone(p, clientGone);
             }
             if(clientGone.getAsBoolean()){
                 abandon(stripe, key, w);
-                return null;
+                throw new ClientGoneException();
             }
         }
 
@@ -230,7 +231,23 @@ public class Keyspace{
             removeFromLine(stripe, key, w);
             return null;
         }
-        return takeUninterruptibly(w);
+        return handBackIfGone(takeUninterruptibly(w), clientGone);
+    }
+
+    // BLPOP waited and woke up holding a value. If the client left while it
+    // waited, writing the reply would appear to succeed (the first write to a
+    // closed socket usually does) and the value would be lost, so hand it back
+    // instead -- to the head, where BLPOP took it from.
+    //
+    // Only ever called after a wait. A client that didn't wait had no time to
+    // leave, and checking anyway misreads one that has merely finished sending
+    // (e.g. `printf ... | nc`) as gone.
+    private Popped handBackIfGone(Popped p, BooleanSupplier clientGone) throws ClientGoneException{
+        if(clientGone.getAsBoolean()){
+            lpush(p.key(), p.value());
+            throw new ClientGoneException();
+        }
+        return p;
     }
 
     // The waiting client is leaving (interrupted or disconnected) and won't read
