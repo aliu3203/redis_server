@@ -160,7 +160,7 @@ class BlpopTest{
 
         gone.set(true);
         assertTrue(client.finish(3000), "noticed within a slice or two");
-        assertNull(client.result.get(), "returned null");
+        assertInstanceOf(ClientGoneException.class, client.error.get(), "reported the client as gone");
         assertEquals(0, ks.waitersFor("q"), "left the line");
 
         ks.lpush("q", b("v"));
@@ -185,8 +185,8 @@ class BlpopTest{
     }
 
     // The data-loss case: a push is handed to a client that disconnected moments
-    // earlier. Dispatcher must notice before writing the reply, put the value
-    // back on the list, and close the connection.
+    // earlier. BLPOP must notice before the reply is written, put the value
+    // back on the list, and the connection must close.
     @Test
     void valueForDisconnectedClientIsPutBack() throws Exception{
         Keyspace ks = new Keyspace();
@@ -216,6 +216,36 @@ class BlpopTest{
         assertInstanceOf(IOException.class, error.get(), "connection closed with IOException");
         assertEquals(0, out.size(), "no reply written to the dead client");
         assertEquals(1L, ks.llen("q"), "value put back on the list");
+    }
+
+    // The bug that `printf 'RPUSH jobs a\nBLPOP jobs 0\n' | nc` exposed. A client
+    // that has finished sending (but is still reading) looks "gone" to the socket
+    // check. With data already in the list BLPOP never waited, so there was no
+    // time for the client to leave -- it must get its reply, not a closed
+    // connection.
+    @Test
+    void immediateReplyEvenWhenClientLooksGone() throws Exception{
+        Keyspace ks = new Keyspace();
+        Dispatcher d = new Dispatcher(ks);
+        ks.rpush("q", b("a"));
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+
+        d.dispatch(new Command(new byte[][]{ b("BLPOP"), b("q"), b("0") }), out, () -> true);
+
+        assertEquals("*2\r\n$1\r\nq\r\n$1\r\na\r\n", out.toString(StandardCharsets.ISO_8859_1), "reply written");
+        assertEquals(0L, ks.llen("q"), "value delivered, not put back");
+    }
+
+    // The same rule inside Keyspace: when BLPOP returns straight away, the
+    // "is the client gone?" check must not run at all.
+    @Test
+    void immediatePopNeverChecksForDisconnect() throws Exception{
+        Keyspace ks = new Keyspace();
+        ks.rpush("q", b("a"));
+        BooleanSupplier mustNotBeCalled = () -> {
+            throw new AssertionError("clientGone was checked although BLPOP never waited");
+        };
+        assertPopped("q", "a", ks.blpop("q", 5000, mustNotBeCalled));
     }
 
     // ------------------------------------------------------------------
