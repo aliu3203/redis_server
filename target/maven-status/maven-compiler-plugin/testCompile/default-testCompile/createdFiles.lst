@@ -1,8 +1,0 @@
-server/BlpopTest$Blocked.class
-server/BlpopTest.class
-server/WaiterTest$Testable.class
-server/ParserTest.class
-server/WaiterTest.class
-server/ConcurrencyTest.class
-server/ParserTest$Testable.class
-server/BlpopTest$Testable.class
