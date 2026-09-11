@@ -15,17 +15,5 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Compile
-        run: javac -d out $(find src test -name '*.java')
-
-      - name: Run Parser Tests
-        run: java -cp out server.ParserTest
-
-      - name: Run Waiter Test
-        run: java -cp out server.WaiterTest
-
-      - name: Run BLPOP Test
-        run: java -cp out server.BlpopTest
-
-      - name: Run Concurrency Test
-        run: java -cp out server.ConcurrencyTest
+      - name: Build and Verify
+        run: mvn -B verify
