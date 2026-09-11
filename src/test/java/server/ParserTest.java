@@ -4,256 +4,242 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
 
-public class ParserTest{
+import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.*;
 
-    private static int checks = 0;
-    private static int failures = 0;
-
-    public static void main(String[] args){
-
-        // --- multibulk happy paths ---
-        run("happyPathPing", ParserTest::happyPathPing);
-        run("multipleArguments", ParserTest::multipleArguments);
-        run("lowercaseNameIsUppercased", ParserTest::lowercaseNameIsUppercased);
-
-        // --- incremental / streaming behaviour ---
-        run("splitDelivery", ParserTest::splitDelivery);
-        run("pipelinedCommands", ParserTest::pipelinedCommands);
-        run("incompleteMultibulkWaits", ParserTest::incompleteMultibulkWaits);
-
-        // --- payload edge cases ---
-        run("binarySafePayload", ParserTest::binarySafePayload);
-        run("emptyBulkString", ParserTest::emptyBulkString);
-        run("emptyArray", ParserTest::emptyArray);
-
-        // --- inline commands ---
-        run("inlineSimple", ParserTest::inlineSimple);
-        run("inlineCollapsesRepeatedSpaces", ParserTest::inlineCollapsesRepeatedSpaces);
-        run("inlineLeadingAndTrailingSpaces", ParserTest::inlineLeadingAndTrailingSpaces);
-
-        // --- malformed input ---
-        run("errorBulkMissingDollar", ParserTest::errorBulkMissingDollar);
-        run("errorNonDigitInLength", ParserTest::errorNonDigitInLength);
-        run("errorLengthLiesAboutPayload", ParserTest::errorLengthLiesAboutPayload);
-        run("errorNegativeCount", ParserTest::errorNegativeCount);
-
-        // --- buffer mechanics ---
-        run("bufferGrowsBeyondInitialCapacity", ParserTest::bufferGrowsBeyondInitialCapacity);
-        run("argsSurviveCompaction", ParserTest::argsSurviveCompaction);
-
-        System.out.println();
-        System.out.println(checks + " checks, " + failures + " failed");
-        if(failures > 0){
-            System.exit(1);
-        }
-    }
-
-    private interface Testable{
-        void run() throws Exception;
-    }
-
-    // Runs one test in isolation. An unexpected exception fails that test
-    // and the run continues, so a single crash cannot hide the rest.
-    private static void run(String name, Testable t){
-        try{
-            t.run();
-        }
-        catch(Throwable e){
-            fail(name + ": threw " + e);
-        }
-    }
+// Parser and Buffer, fed bytes directly -- no sockets.
+//
+//   mvn test -Dtest=ParserTest
+class ParserTest{
 
     // ------------------------------------------------------------------
-    // tests
+    // multibulk happy paths
     // ------------------------------------------------------------------
 
-    private static void happyPathPing() throws Exception{
+    @Test
+    void happyPathPing() throws Exception{
         Buffer b = new Buffer();
         feed(b, "*1\r\n$4\r\nPING\r\n");
         Command cmd = Parser.tryParse(b);
 
-        checkNotNull("happyPathPing: parsed a command", cmd);
-        checkEquals("happyPathPing: name", "PING", cmd.name());
-        checkEquals("happyPathPing: argc", 1, cmd.argc());
-        checkEquals("happyPathPing: buffer fully consumed", null, Parser.tryParse(b));
+        assertNotNull(cmd, "parsed a command");
+        assertEquals("PING", cmd.name(), "name");
+        assertEquals(1, cmd.argc(), "argc");
+        assertNull(Parser.tryParse(b), "buffer fully consumed");
     }
 
-    private static void multipleArguments() throws Exception{
+    @Test
+    void multipleArguments() throws Exception{
         Buffer b = new Buffer();
         feed(b, "*3\r\n$3\r\nSET\r\n$5\r\nmykey\r\n$7\r\nmyvalue\r\n");
         Command cmd = Parser.tryParse(b);
 
-        checkNotNull("multipleArguments: parsed a command", cmd);
-        checkEquals("multipleArguments: name", "SET", cmd.name());
-        checkEquals("multipleArguments: argc", 3, cmd.argc());
-        checkEquals("multipleArguments: arg(1)", "mykey", str(cmd.arg(1)));
-        checkEquals("multipleArguments: arg(2)", "myvalue", str(cmd.arg(2)));
+        assertNotNull(cmd, "parsed a command");
+        assertEquals("SET", cmd.name(), "name");
+        assertEquals(3, cmd.argc(), "argc");
+        assertEquals("mykey", str(cmd.arg(1)), "arg(1)");
+        assertEquals("myvalue", str(cmd.arg(2)), "arg(2)");
     }
 
-    private static void lowercaseNameIsUppercased() throws Exception{
+    @Test
+    void lowercaseNameIsUppercased() throws Exception{
         Buffer b = new Buffer();
         feed(b, "*1\r\n$4\r\nping\r\n");
         Command cmd = Parser.tryParse(b);
 
-        checkNotNull("lowercaseName: parsed a command", cmd);
-        checkEquals("lowercaseName: name() uppercases", "PING", cmd.name());
-        checkEquals("lowercaseName: arg(0) keeps original bytes", "ping", str(cmd.arg(0)));
+        assertNotNull(cmd, "parsed a command");
+        assertEquals("PING", cmd.name(), "name() uppercases");
+        assertEquals("ping", str(cmd.arg(0)), "arg(0) keeps the original bytes");
     }
+
+    // ------------------------------------------------------------------
+    // incremental / streaming behaviour
+    // ------------------------------------------------------------------
 
     // A command split across two reads must return null without consuming,
     // then parse cleanly once the rest arrives.
-    private static void splitDelivery() throws Exception{
+    @Test
+    void splitDelivery() throws Exception{
         Buffer b = new Buffer();
 
         feed(b, "*1\r\n$4\r\nPI");
-        checkEquals("splitDelivery: incomplete returns null", null, Parser.tryParse(b));
+        assertNull(Parser.tryParse(b), "incomplete returns null");
 
         feed(b, "NG\r\n");
         Command cmd = Parser.tryParse(b);
-        checkNotNull("splitDelivery: completes after rest arrives", cmd);
-        checkEquals("splitDelivery: name", "PING", cmd.name());
+        assertNotNull(cmd, "completes after the rest arrives");
+        assertEquals("PING", cmd.name(), "name");
     }
 
     // Two commands delivered in one read must both come back, in order.
-    private static void pipelinedCommands() throws Exception{
+    @Test
+    void pipelinedCommands() throws Exception{
         Buffer b = new Buffer();
         feed(b, "*1\r\n$4\r\nPING\r\n*2\r\n$4\r\nECHO\r\n$2\r\nhi\r\n");
 
         Command first = Parser.tryParse(b);
-        checkNotNull("pipelined: first command", first);
-        checkEquals("pipelined: first name", "PING", first.name());
+        assertNotNull(first, "first command");
+        assertEquals("PING", first.name(), "first name");
 
         Command second = Parser.tryParse(b);
-        checkNotNull("pipelined: second command", second);
-        checkEquals("pipelined: second name", "ECHO", second.name());
-        checkEquals("pipelined: second arg", "hi", str(second.arg(1)));
+        assertNotNull(second, "second command");
+        assertEquals("ECHO", second.name(), "second name");
+        assertEquals("hi", str(second.arg(1)), "second arg");
 
-        checkEquals("pipelined: nothing left", null, Parser.tryParse(b));
+        assertNull(Parser.tryParse(b), "nothing left");
     }
 
     // Header promises 2 args but only 1 is present: wait, don't error.
-    private static void incompleteMultibulkWaits() throws Exception{
+    @Test
+    void incompleteMultibulkWaits() throws Exception{
         Buffer b = new Buffer();
         feed(b, "*2\r\n$4\r\nECHO\r\n");
-        checkEquals("incompleteMultibulk: returns null", null, Parser.tryParse(b));
+        assertNull(Parser.tryParse(b), "returns null");
 
         feed(b, "$2\r\nhi\r\n");
         Command cmd = Parser.tryParse(b);
-        checkNotNull("incompleteMultibulk: completes later", cmd);
-        checkEquals("incompleteMultibulk: argc", 2, cmd.argc());
-        checkEquals("incompleteMultibulk: arg(1)", "hi", str(cmd.arg(1)));
+        assertNotNull(cmd, "completes later");
+        assertEquals(2, cmd.argc(), "argc");
+        assertEquals("hi", str(cmd.arg(1)), "arg(1)");
     }
 
+    // ------------------------------------------------------------------
+    // payload edge cases
+    // ------------------------------------------------------------------
+
     // The whole point of a length prefix: payload may contain CRLF.
-    private static void binarySafePayload() throws Exception{
+    @Test
+    void binarySafePayload() throws Exception{
         Buffer b = new Buffer();
         feed(b, "*1\r\n$5\r\na\r\nbc\r\n");
         Command cmd = Parser.tryParse(b);
 
-        checkNotNull("binarySafe: parsed a command", cmd);
-        checkEquals("binarySafe: argc", 1, cmd.argc());
-        checkEquals("binarySafe: payload length", 5, cmd.arg(0).length);
-        checkEquals("binarySafe: payload bytes", "a\r\nbc", str(cmd.arg(0)));
-        checkEquals("binarySafe: nothing left over", null, Parser.tryParse(b));
+        assertNotNull(cmd, "parsed a command");
+        assertEquals(1, cmd.argc(), "argc");
+        assertEquals(5, cmd.arg(0).length, "payload length");
+        assertEquals("a\r\nbc", str(cmd.arg(0)), "payload bytes");
+        assertNull(Parser.tryParse(b), "nothing left over");
     }
 
-    private static void emptyBulkString() throws Exception{
+    @Test
+    void emptyBulkString() throws Exception{
         Buffer b = new Buffer();
         feed(b, "*1\r\n$0\r\n\r\n");
         Command cmd = Parser.tryParse(b);
 
-        checkNotNull("emptyBulk: parsed a command", cmd);
-        checkEquals("emptyBulk: argc", 1, cmd.argc());
-        checkEquals("emptyBulk: arg is zero length", 0, cmd.arg(0).length);
-        checkEquals("emptyBulk: nothing left over", null, Parser.tryParse(b));
+        assertNotNull(cmd, "parsed a command");
+        assertEquals(1, cmd.argc(), "argc");
+        assertEquals(0, cmd.arg(0).length, "arg is zero length");
+        assertNull(Parser.tryParse(b), "nothing left over");
     }
 
-    private static void emptyArray() throws Exception{
+    @Test
+    void emptyArray() throws Exception{
         Buffer b = new Buffer();
         feed(b, "*0\r\n");
         Command cmd = Parser.tryParse(b);
 
-        checkNotNull("emptyArray: parsed a command", cmd);
-        checkEquals("emptyArray: argc", 0, cmd.argc());
-        checkEquals("emptyArray: name is empty string", "", cmd.name());
-        checkEquals("emptyArray: 4 bytes consumed", null, Parser.tryParse(b));
+        assertNotNull(cmd, "parsed a command");
+        assertEquals(0, cmd.argc(), "argc");
+        assertEquals("", cmd.name(), "name is empty string");
+        assertNull(Parser.tryParse(b), "all 4 bytes consumed");
     }
 
-    private static void inlineSimple() throws Exception{
+    // ------------------------------------------------------------------
+    // inline commands
+    // ------------------------------------------------------------------
+
+    @Test
+    void inlineSimple() throws Exception{
         Buffer b = new Buffer();
         feed(b, "PING\r\n");
         Command cmd = Parser.tryParse(b);
 
-        checkNotNull("inlineSimple: parsed a command", cmd);
-        checkEquals("inlineSimple: name", "PING", cmd.name());
-        checkEquals("inlineSimple: argc", 1, cmd.argc());
+        assertNotNull(cmd, "parsed a command");
+        assertEquals("PING", cmd.name(), "name");
+        assertEquals(1, cmd.argc(), "argc");
     }
 
-    private static void inlineCollapsesRepeatedSpaces() throws Exception{
+    @Test
+    void inlineCollapsesRepeatedSpaces() throws Exception{
         Buffer b = new Buffer();
         feed(b, "ECHO   hi\r\n");
         Command cmd = Parser.tryParse(b);
 
-        checkNotNull("inlineSpaces: parsed a command", cmd);
-        checkEquals("inlineSpaces: argc (no empty tokens)", 2, cmd.argc());
-        checkEquals("inlineSpaces: name", "ECHO", cmd.name());
-        checkEquals("inlineSpaces: arg(1)", "hi", str(cmd.arg(1)));
+        assertNotNull(cmd, "parsed a command");
+        assertEquals(2, cmd.argc(), "argc (no empty tokens)");
+        assertEquals("ECHO", cmd.name(), "name");
+        assertEquals("hi", str(cmd.arg(1)), "arg(1)");
     }
 
-    private static void inlineLeadingAndTrailingSpaces() throws Exception{
+    @Test
+    void inlineLeadingAndTrailingSpaces() throws Exception{
         Buffer b = new Buffer();
         feed(b, "  ECHO hi  \r\n");
         Command cmd = Parser.tryParse(b);
 
-        checkNotNull("inlinePadding: parsed a command", cmd);
-        checkEquals("inlinePadding: argc", 2, cmd.argc());
-        checkEquals("inlinePadding: name", "ECHO", cmd.name());
-        checkEquals("inlinePadding: arg(1)", "hi", str(cmd.arg(1)));
+        assertNotNull(cmd, "parsed a command");
+        assertEquals(2, cmd.argc(), "argc");
+        assertEquals("ECHO", cmd.name(), "name");
+        assertEquals("hi", str(cmd.arg(1)), "arg(1)");
     }
 
-    private static void errorBulkMissingDollar() throws Exception{
-        expectProtocolError("errorMissingDollar", "*1\r\n#4\r\nPING\r\n");
+    // ------------------------------------------------------------------
+    // malformed input
+    // ------------------------------------------------------------------
+
+    @Test
+    void errorBulkMissingDollar(){
+        assertProtocolError("*1\r\n#4\r\nPING\r\n");
     }
 
-    private static void errorNonDigitInLength() throws Exception{
-        expectProtocolError("errorNonDigitLength", "*x\r\n$4\r\nPING\r\n");
+    @Test
+    void errorNonDigitInLength(){
+        assertProtocolError("*x\r\n$4\r\nPING\r\n");
     }
 
     // Header says 3 bytes, payload is 4: the trailing CRLF check must catch it.
-    private static void errorLengthLiesAboutPayload() throws Exception{
-        expectProtocolError("errorLyingLength", "*1\r\n$3\r\nPING\r\n");
+    @Test
+    void errorLengthLiesAboutPayload(){
+        assertProtocolError("*1\r\n$3\r\nPING\r\n");
     }
 
     // Real Redis treats *-1 as a null array; this parser rejects the '-'.
     // Pinning current behaviour so a future change is a deliberate one.
-    private static void errorNegativeCount() throws Exception{
-        expectProtocolError("errorNegativeCount", "*-1\r\n");
+    @Test
+    void errorNegativeCount(){
+        assertProtocolError("*-1\r\n");
     }
 
+    // ------------------------------------------------------------------
+    // buffer mechanics
+    // ------------------------------------------------------------------
+
     // Payload larger than INITIAL_CAPACITY forces Buffer to grow.
-    private static void bufferGrowsBeyondInitialCapacity() throws Exception{
+    @Test
+    void bufferGrowsBeyondInitialCapacity() throws Exception{
         int size = 20000;
         String payload = "a".repeat(size);
         Buffer b = new Buffer();
         feed(b, "*2\r\n$3\r\nSET\r\n$" + size + "\r\n" + payload + "\r\n");
 
         Command cmd = Parser.tryParse(b);
-        checkNotNull("bufferGrowth: parsed a command", cmd);
-        checkEquals("bufferGrowth: argc", 2, cmd.argc());
-        checkEquals("bufferGrowth: payload length", size, cmd.arg(1).length);
-        checkEquals("bufferGrowth: first payload byte", (byte)'a', cmd.arg(1)[0]);
-        checkEquals("bufferGrowth: last payload byte", (byte)'a', cmd.arg(1)[size-1]);
+        assertNotNull(cmd, "parsed a command");
+        assertEquals(2, cmd.argc(), "argc");
+        assertEquals(size, cmd.arg(1).length, "payload length");
+        assertEquals((byte)'a', cmd.arg(1)[0], "first payload byte");
+        assertEquals((byte)'a', cmd.arg(1)[size - 1], "last payload byte");
     }
 
     // Args must be independent copies, not views into the buffer, so that
     // consuming and compacting the buffer cannot corrupt an earlier Command.
-    private static void argsSurviveCompaction() throws Exception{
+    @Test
+    void argsSurviveCompaction() throws Exception{
         Buffer b = new Buffer();
         feed(b, "*1\r\n$4\r\nPING\r\n");
         Command first = Parser.tryParse(b);
-        checkNotNull("compaction: first command parsed", first);
+        assertNotNull(first, "first command parsed");
         byte[] heldArg = first.arg(0);
 
         // Push the buffer past its initial capacity, forcing the compaction
@@ -262,10 +248,10 @@ public class ParserTest{
         feed(b, "*1\r\n$" + size + "\r\n" + "b".repeat(size) + "\r\n");
         Command second = Parser.tryParse(b);
 
-        checkNotNull("compaction: second command parsed", second);
-        checkEquals("compaction: second payload length", size, second.arg(0).length);
-        checkEquals("compaction: held arg unchanged", "PING", str(heldArg));
-        checkEquals("compaction: held arg is same object", true, heldArg == first.arg(0));
+        assertNotNull(second, "second command parsed");
+        assertEquals(size, second.arg(0).length, "second payload length");
+        assertEquals("PING", str(heldArg), "held arg unchanged");
+        assertSame(heldArg, first.arg(0), "held arg is the same object");
     }
 
     // ------------------------------------------------------------------
@@ -289,55 +275,11 @@ public class ParserTest{
         }
     }
 
-    private static void expectProtocolError(String label, String wire){
+    private static void assertProtocolError(String wire){
         Buffer b = new Buffer();
-        try{
+        assertThrows(ProtocolError.class, () -> {
             feed(b, wire);
-            Command cmd = Parser.tryParse(b);
-            fail(label + ": expected ProtocolError, got " + describe(cmd));
-        }
-        catch(ProtocolError e){
-            pass(label + " -> ProtocolError(\"" + e.getMessage() + "\")");
-        }
-        catch(IOException e){
-            fail(label + ": unexpected IOException " + e);
-        }
-    }
-
-    private static String describe(Command cmd){
-        if(cmd == null){
-            return "null (parser waiting for more input)";
-        }
-        return "Command " + cmd.name() + " with argc " + cmd.argc();
-    }
-
-    private static void checkEquals(String label, Object expected, Object actual){
-        boolean ok = (expected == null) ? (actual == null) : expected.equals(actual);
-        if(ok){
-            pass(label);
-        }
-        else{
-            fail(label + ": expected <" + expected + "> but was <" + actual + ">");
-        }
-    }
-
-    private static void checkNotNull(String label, Object actual){
-        if(actual != null){
-            pass(label);
-        }
-        else{
-            fail(label + ": expected non-null, was null");
-        }
-    }
-
-    private static void pass(String label){
-        checks++;
-        System.out.println("  ok   " + label);
-    }
-
-    private static void fail(String label){
-        checks++;
-        failures++;
-        System.out.println("  FAIL " + label);
+            Parser.tryParse(b);
+        });
     }
 }
